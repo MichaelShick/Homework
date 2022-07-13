@@ -33,7 +33,7 @@ void *serverListener(void *num)
     while (1)
     {
         fflush(stdout);
-        recvSize = exitOnError(recv(serverSocket, &reciveBuffer, sizeof(reciveBuffer), 0),"recv()");
+        recvSize = exitOnError(recv(serverSocket, &reciveBuffer, sizeof(reciveBuffer), 0), "recv()");
         fflush(stdout);
         if (recvSize == 0)
         {
@@ -63,21 +63,21 @@ void main()
     serv.sin_addr.s_addr = inet_addr("127.0.0.1");
     serv.sin_port = htons(PORT);
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
-    exitOnError(connect(serverSocket, (struct sockaddr *)&serv, sizeof(serv)) < 0,"connect()");
+    exitOnError(connect(serverSocket, (struct sockaddr *)&serv, sizeof(serv)) < 0, "connect()");
     printf("the socket is %d\n", serverSocket);
     fflush(stdout);
-    exitOnError(recv(serverSocket, &buffer.content, MAX_MESSAGE_LEN, 0),"recv()");
+    exitOnError(recv(serverSocket, &buffer.content, MAX_MESSAGE_LEN, 0), "recv()");
     printf("%s\n", buffer.content);
     printf("enter your name :");
     fflush(stdout);
-    scanf("%31s", buffer.name);
-    while(!strcmp(buffer.name,"SERVER") && !strcmp(buffer.name,"You"))
+    gets(buffer.name);
+    while (strcmp(buffer.name, "SERVER") == 0 || strcmp(buffer.name, "You") == 0)
     {
-    printf("Invalid name, try again:");
-    fflush(stdout);
-    scanf("%31s", buffer.name);
+        printf("Invalid name, try again:");
+        fflush(stdout);
+        gets(buffer.name);
     }
-    exitOnError(send(serverSocket, &buffer, MAX_NAME_LEN, 0),"send()");
+    exitOnError(send(serverSocket, &buffer, MAX_NAME_LEN, 0), "send()");
     pthread_create(&threadId, NULL, serverListener, &serverSocket);
     fflush(stdout);
 
@@ -86,7 +86,7 @@ void main()
         printf("You --> ", buffer.name);
         fflush(stdout);
         gets(buffer.content);
-        exitOnError(send(serverSocket, &buffer, MAX_MESSAGE_LEN, 0),"send()");
+        exitOnError(send(serverSocket, &buffer, MAX_MESSAGE_LEN, 0), "send()");
     }
     // printf("the socket is %d\n",serverSocket);
     //   memset(msg, 0, sizeof(msg));

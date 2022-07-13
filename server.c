@@ -1,6 +1,5 @@
 #include "chat.h"
 
-
 client *clients;         // dynamic clients array
 int localSocket;         // server socket
 int clientsIn = 0;       // clients joined - for ID setup
@@ -71,21 +70,21 @@ client addClient(int socket, pthread_t threadID)
     if (clients == NULL)
     {
         pthread_mutex_unlock(&lock);
-        exitOnError(-1,"memory allocation");
+        exitOnError(-1, "memory allocation");
     }
     // printClient(clients+clientsIn);
     pthread_mutex_unlock(&lock);
     clientsIn++;
-    return *(clients + (clientsIn-1));
+    return *(clients + (clientsIn - 1));
 }
 // remove the client with the specified socket from the dynamic array
 void removeClient(int socket)
 {
-    pthread_mutex_lock(&lock);
     client tmp;
     msg leaveMsg;
     printAllClients();
     int i;
+    //pthread_mutex_lock(&lock);
     for (i = 0; (clients + i)->socket != socket; i++)
     {
     };
@@ -96,15 +95,15 @@ void removeClient(int socket)
     strncpy((leaveMsg.content + strlen(tmp.nickname)), "has left the chat room\0", 24);
     passMessage(leaveMsg, socket);
     *(clients + i) = tmp;
-    clients = realloc(clients, sizeof(client) + (--clientsIn * sizeof(client)));
+    clientsIn--;
+    clients = realloc(clients, sizeof(client) + (clientsIn * sizeof(client)));
     printAllClients();
-    pthread_mutex_unlock(&lock);
+    //pthread_mutex_unlock(&lock);
 }
 int waitForMsg(client *cl)
 {
     int i;
     msg buffer;
-    // strcpy(buffer, &(cl->nickname)); // cpy the name to the buffer but don't copy the null symbolS
     int val = exitOnError(recv(cl->socket, &buffer, MAX_MESSAGE_LEN, 0), "recv()");
     // buffer[val] = 0;
     //  if (strcmp(buffer, "!exit"))
@@ -117,9 +116,10 @@ int waitForMsg(client *cl)
     }
     else if (val == 0)
     {
-        printf("no message\n");
-        if (send(cl->socket, "", 1, 0) == -1)
+        if (send(cl->socket, "a", 1, 0) == -1)
         {
+            printf("no message\n");
+            fflush(stdout);
             removeClient(cl->socket);
             return -1;
         }
