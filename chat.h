@@ -1,4 +1,7 @@
+#define PORT 9001
+#include <sys/types.h>
 #include <sys/socket.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <stdio.h>
@@ -7,35 +10,26 @@
 #include <errno.h>
 #include <string.h>
 #include <sys/types.h>
-#include <netdb.h>
 #include <pthread.h>
 #include <signal.h>
 
-#define PORT 9003
-#define MAX_CLIENTS 100
+#define max_name_len
 #define MAX_NAME_LEN 32
-#define MAX_MESSAGE_LEN 128 + MAX_NAME_LEN
+#define MAX_MESSAGE_LEN 128
+#define MAX_CLIENTS 50
+#define FOREVER 1
 
-typedef struct msgPacket
-{
-    char name[MAX_NAME_LEN];
-    char content[MAX_MESSAGE_LEN];
-} msg;
+// mainly for storing connected sockets
 typedef struct client
 {
-    int clientID;
-    int socket; // client CONNECTED socket
-    char nickname[MAX_NAME_LEN];
-    pthread_t threadID; // each client has his own message recieving thread
-} client;
-
-int exitOnError(int status, char *str);
-void *serverListener(void *num);
-void sendMessage(msg message, int socket);
-void passMessage(msg recviedMessage, int sender); // pass message to everyone in the server except the sender socket
-void printClient(client *cl);
-void printAllClients();
-client addClient(int socket, pthread_t threadID);
-void removeClient(int socket);
-int waitForMsg(client *cl);
-void *clientHandler(void *vargp); // thread for accepting and forwarding messages
+    int clientID_t;       // a clients uniqe ID
+    pthread_t threadID_t; // each client is included in his own thread
+    int socket_t;         // a pointer to the socket connecting the client
+    char nickname_t[];    // a nickname to print with each user message
+} client_s, *clientPtr_s;
+// the default package to use with send() in both server.c and client.c
+typedef struct msgPacket
+{
+    char name_t[MAX_NAME_LEN];       // name of the sender
+    char content_t[MAX_MESSAGE_LEN]; // content to be sent
+} msg_s, *msgPtr_s;

@@ -1,192 +1,286 @@
-#include "chat.h"
+#include "server.h"
+#define _CRT_SECURE_NO_WARNINGS
+clientPtr_s clients;      // dynamic clients array - fills as new sockets connect
+pthread_mutex_t lock_g;   // mutex lock
+int clients_in_g = 0;     // amount of clients connected
+int threadsRunning_g = 0; // amount of threads currently running, to add threads to *threads
 
-
-client *clients;         // dynamic clients array
-int localSocket;         // server socket
-int clientsIn = 0;       // clients joined - for ID setup
-int run = 1;             // run the server?
-struct sockaddr_in serv; // server parms
-pthread_mutex_t lock;
-
-int exitOnError(int status, char *str)
+int exit_on_error(int status, char *str)
 {
     if (status == -1)
     {
         printf("error - %s in %s\n", strerror(errno), str);
-        fflush(stdout);
+        exit(1);
+    }
+    else if (status < -1)
+    {
+        printf("error - error code no.%d\n", status);
         exit(1);
     }
     return status;
 }
-void sendMessage(msg message, int socket)
+int socket_is_open(int socket)
 {
-}
-void passMessage(msg recviedMessage, int sender) // pass message to everyone in the server except the sender socket
-{
-    pthread_mutex_lock(&lock);
-    int i;
-    for (i = 0; i < clientsIn; i++)
+    int closed = 0;
+    msg_s magic_string = {"SERVERCHECKLMAO", 0};
+    printf("%s\n", magic_string.name_t);
+    if (send(socket, &magic_string, sizeof(magic_string), 0) == -1)
     {
-        if ((clients + i)->socket != sender)
+        printf("is closed\n");
+        closed = -1;
+    }
+    return closed;
+}
+
+void print_client(client_s *cl)
+{
+    printf("client address pointer = %p client no.%d socket.%d on thread.%lu\n", cl, cl->clientID_t, cl->socket_t, cl->threadID_t);
+    fflush(stdout);
+}
+void print_all_clients()
+{
+    int i;
+    pthread_mutex_lock(&lock_g);
+    for (i = 0; i < clients_in_g; i++)
+    {
+        print_client(clients + i);
+    }
+    pthread_mutex_unlock(&lock_g);
+}
+void pass_message(msg_s recviedMessage, int sender)
+{
+    int i;
+    for (i = 0; i < clients_in_g; i++)
+    {
+        if ((clients + i)->socket_t != sender)
         {
-            printf("passed to socket -- %s\n", recviedMessage.content);
-            printf("sent %d bytes!\n", exitOnError(send(
-                                                       (clients + i)->socket, &recviedMessage, MAX_MESSAGE_LEN, 0),
-                                                   "Send2\n"));
+
+            if (socket_is_open(clients[i].socket_t) == -1)
+            {
+                close(clients[i].socket_t);
+            }
+            else
+            {
+                printf("passed to socket -- %s\n", recviedMessage.content_t);
+                printf("sent %d bytes!\n", exit_on_error(send(
+                                                             (clients + i)->socket_t, &recviedMessage, MAX_MESSAGE_LEN, 0),
+                                                         "Send2\n"));
+            }
         }
     }
-    pthread_mutex_unlock(&lock);
 }
-void printClient(client *cl)
+void add_client(int socket, pthread_t threadID, clientPtr_s tmp)
 {
-    printf("client address pointer = %p client no.%d socket.%d on thread.%lu \n", cl, cl->clientID, cl->socket, cl->threadID);
-    fflush(stdout);
-}
-void printAllClients()
-{
-    int i;
-    pthread_mutex_lock(&lock);
-    for (i = 0; i < clientsIn; i++)
-    {
-        printClient(clients + i);
-    }
-    pthread_mutex_unlock(&lock);
-}
-// must always have one free space for new clients, returning the new Client
-// on success
-client addClient(int socket, pthread_t threadID)
-{
-
-    pthread_mutex_lock(&lock);
-    clients = realloc(clients, sizeof(client) + (sizeof(client) * clientsIn));
-    (clients + clientsIn)->clientID = clientsIn;
-    (clients + clientsIn)->socket = socket;
-    // (clients + clientsIn)->threadID = threadID;
-    fflush(stdout);
-    exitOnError(send(
-                    socket, "===WELCOME TO THE TALKING BEN===", MAX_MESSAGE_LEN, 0),
-                "Send1\n");
-    exitOnError(recv(socket, ((clients + clientsIn)->nickname), MAX_NAME_LEN, 0), "recv()");
-    //   thread id must be passed from pthread_create()
+    pthread_mutex_lock(&lock_g);
+    msg_s buffer;
+    clients = realloc(clients, sizeof(client_s) + (sizeof(client_s) * (clients_in_g + 1)));
     if (clients == NULL)
     {
-        pthread_mutex_unlock(&lock);
-        exitOnError(-1,"memory allocation");
+        pthread_mutex_unlock(&lock_g);
+        exit_on_error(-1, "memory allocation");
     }
-    // printClient(clients+clientsIn);
-    pthread_mutex_unlock(&lock);
-    clientsIn++;
-    return *(clients + (clientsIn-1));
+    clients[clients_in_g].clientID_t = clients_in_g;
+    clients[clients_in_g].socket_t = socket;
+    clients[clients_in_g].threadID_t = threadID;
+    if (socket_is_open(socket) == 0)
+    {
+        printf("sending welcome to %d\n", socket);
+        // every client must trade the welcome signal for his nickname
+        strncpy(buffer.name_t, "SERVER", 7);
+        strncpy(buffer.content_t, "===WELCOME TO THE TALKING BEN===", 33);
+        printf("%s : %s\n", buffer.name_t, buffer.content_t);
+        exit_on_error(send(
+                          socket, &buffer, MAX_MESSAGE_LEN, 0),
+                      "Send1\n");
+        exit_on_error(recv(socket, &buffer, MAX_NAME_LEN, 0), "recv()");
+        //   thread id must be passed from pthread_create()
+        strncpy(clients[clients_in_g].nickname_t, buffer.name_t,MAX_NAME_LEN);
+        printf("clients_in_g %d\n",clients_in_g);
+        *tmp = clients[clients_in_g];
+        clients_in_g++;
+    }
+    pthread_mutex_unlock(&lock_g);
 }
-// remove the client with the specified socket from the dynamic array
 void removeClient(int socket)
 {
-    pthread_mutex_lock(&lock);
-    client tmp;
-    msg leaveMsg;
-    printAllClients();
+    printf("removing with old size %d\n", clients_in_g);
+    client_s tmp;
+    msg_s leaveMsg;
+    print_all_clients();
     int i;
-    for (i = 0; (clients + i)->socket != socket; i++)
+    if (clients_in_g == 1)
     {
-    };
-    tmp = *(clients + (clientsIn - 1));
-    // todo put lines 103-107 into a USERLEFT funciton
-    strncpy(leaveMsg.name, "SERVER", 7);
-    strncpy(leaveMsg.content, tmp.nickname, (strlen(tmp.nickname)));
-    strncpy((leaveMsg.content + strlen(tmp.nickname)), "has left the chat room\0", 24);
-    passMessage(leaveMsg, socket);
-    *(clients + i) = tmp;
-    clients = realloc(clients, sizeof(client) + (--clientsIn * sizeof(client)));
-    printAllClients();
-    pthread_mutex_unlock(&lock);
+        printf("only one!\n");
+        clients_in_g--;
+        clients == NULL;
+    }
+    else
+    {
+
+        //pthread_mutex_lock(&lock_g);
+        for (i = 0; clients[i].socket_t != socket; i++)
+        {
+        };
+        tmp = clients[clients_in_g - 1];
+        memset(leaveMsg.name_t, 0, MAX_NAME_LEN);
+        memset(leaveMsg.content_t, 0, MAX_MESSAGE_LEN);
+        strncpy(leaveMsg.name_t, "SERVER", 7);
+        strncpy(leaveMsg.content_t, tmp.nickname_t, (strlen(tmp.nickname_t)));
+        strncpy((leaveMsg.content_t + strlen(tmp.nickname_t)), "has left the chat room\0", 24);
+        pass_message(leaveMsg, socket);
+
+        clients[i] = tmp;
+        clients_in_g--;
+        clients = realloc(clients, sizeof(client_s) + (clients_in_g * sizeof(client_s)));
+        if (clients == NULL)
+        {
+            exit_on_error(-1, "clients realloc()");
+        }
+    }
+    print_all_clients();
+    //pthread_mutex_unlock(&lock_g);
 }
-int waitForMsg(client *cl)
+int wait_for_msg(clientPtr_s cl)
 {
     int i;
-    msg buffer;
-    // strcpy(buffer, &(cl->nickname)); // cpy the name to the buffer but don't copy the null symbolS
-    int val = exitOnError(recv(cl->socket, &buffer, MAX_MESSAGE_LEN, 0), "recv()");
-    // buffer[val] = 0;
-    //  if (strcmp(buffer, "!exit"))
-    //  printf("the message is %s\n", buffer);
+    msg_s buffer;
+    if (socket_is_open(cl->socket_t) != 0)
+    {
+        printf("no message\n");
+        removeClient(cl->socket_t);
+        return -1;
+    }
+    int val = recv(cl->socket_t, &buffer, MAX_MESSAGE_LEN, 0);
     if (val == -1)
     {
         printf("error?");
-        // TODO close connection
-        return NULL;
+        removeClient(cl->clientID_t);
+        close(cl->socket_t);
+        return -1;
     }
     else if (val == 0)
     {
-        printf("no message\n");
-        if (send(cl->socket, "", 1, 0) == -1)
+        if (socket_is_open(cl->socket_t) != 0)
         {
-            removeClient(cl->socket);
+            printf("no message\n");
+            removeClient(cl->socket_t);
+            close(cl->socket_t);
             return -1;
         }
-        fflush(stdout);
     }
     else if (val > 0)
     {
-        fflush(stdout);
-        passMessage(buffer, cl->socket);
-        fflush(stdout);
+        pass_message(buffer, cl->socket_t);
     }
-
     // sleep(5);
-    fflush(stdout);
     return 1;
 }
 void *clientHandler(void *vargp)
 {
+    printf("created\n");
     int socketBuffer = *(int *)vargp;
-    client localClient = addClient(socketBuffer, pthread_self());
-    // printClient(&localClient);
-    while (1)
+    clientPtr_s localClient = malloc(sizeof(client_s));
+    if(localClient == NULL)
     {
-        if (waitForMsg(&localClient) == -1)
+        printf("memory problem\n");
+        exit(1);
+    }
+    add_client(socketBuffer, pthread_self(), localClient);
+    // if add_client failed to fill
+    if (localClient == NULL)
+    {
+        puts("failed to add a client!\n");
+        close(socketBuffer);
+        pthread_exit(NULL);
+    }
+    while (FOREVER)
+    {
+        // wait_for_msg should handle socket closure and client removal
+        if (wait_for_msg(localClient) == -1)
         {
+            threadsRunning_g--;
+            printf("EXITING!!\n");
             pthread_exit(NULL);
         }
     }
 }
-
-void main()
+int socket_bind_listen(struct sockaddr_in *info)
 {
-    int addrlen;
-    int socketBuffer;    // for storing connected sockets until assigned to struct
-    client clientBuffer; // same as above but for clients
+    int socketBuffer;
+    // socket
+    socketBuffer = exit_on_error(socket(info->sin_family, SOCK_STREAM, 0), "socket()");
+    // bind
+    exit_on_error(bind(socketBuffer, info, sizeof(struct sockaddr_in)), "bind()");
+    puts("binded succesfuly!");
 
-    if (pthread_mutex_init(&lock, NULL) != 0)
+    // listen
+    exit_on_error(listen(socketBuffer, 20), "listen()");
+    puts("listening...");
+
+    return socketBuffer;
+}
+void init_addrinfo(struct addrinfo *info)
+{
+    struct addrinfo setup; // params setup
+    setup.ai_family = AF_INET;
+    setup.ai_socktype = SOCK_STREAM;
+    // setup.ai_protocol = NULL;
+    setup.ai_flags = AI_PASSIVE;
+    printf("%s", PORT);
+    exit_on_error(getaddrinfo(NULL, PORT, &setup, &info), "getadrrInfo()");
+}
+void init_sockaddr(struct sockaddr_in *params)
+{
+    params->sin_family = AF_INET;
+    params->sin_addr.s_addr = INADDR_ANY;
+    params->sin_port = htons(PORT);
+}
+void init_server()
+{
+    struct sockaddr_in params;
+    int paramsLen;
+    int socketBuffer;      // for storing connected sockets until assigned to struct
+    int serverSocket;      // the socket of the server
+    client_s clientBuffer; // same as above but for clients
+    pthread_t threads;
+
+    threads = malloc(sizeof(pthread_t) * MAX_CLIENTS);
+    clients = malloc(sizeof(client_s));
+
+    exit_on_error((clients == NULL || threads == NULL) ? -1 : 0, "clients/threads malloc"); // try to malloc
+    exit_on_error(pthread_mutex_init(&lock_g, NULL), "mutexInit()");
+
+    sigaction(SIGPIPE, &(struct sigaction){SIG_IGN}, NULL); // to disable error no.141   on
+
+    init_sockaddr(&params);
+    serverSocket = socket_bind_listen(&params);
+    paramsLen = sizeof(params);
+    do
     {
-        printf("\n mutex init failed\n");
-        exit(1);
-    }
+        while (threadsRunning_g < MAX_CLIENTS)
+        {
 
-    sigaction(SIGPIPE, &(struct sigaction){SIG_IGN}, NULL); // to disable error no.141   on send to closed socket
-    clients = (client *)malloc(sizeof(client));
-    exitOnError(clients == 0 ? -1 : 1, "clients allocation");
-    serv.sin_family = AF_INET;
-    serv.sin_addr.s_addr = INADDR_ANY;
-    serv.sin_port = htons(PORT);
-    localSocket = socket(AF_INET, SOCK_STREAM, 0);
+            puts("waiting for accept");
+            socketBuffer = exit_on_error((accept(serverSocket, (struct sockaddr *)&params, &paramsLen)), "accept()");
+            printf("accepted %d\n", socketBuffer);
+            exit_on_error(pthread_create(threads + threadsRunning_g++, NULL, (void *)clientHandler, &(socketBuffer)), "thread creation");
+        }
 
-    exitOnError(bind(localSocket, (struct sockaddr *)&serv, sizeof(serv)), "bind()");
-    printf("address %d binded succesfully!\n", PORT);
+        puts("max clients reached, going to sleep..");
+        // sleep(10);
+    } while (FOREVER);
 
-    exitOnError(listen(localSocket, MAX_CLIENTS), "listen()");
-    printf("listening...\n");
+    close(serverSocket);
+    free(clients);
+    free(threads);
+    pthread_mutex_destroy(&lock_g);
+    freeaddrinfo(&params);
+}
+int main()
+{
+    setbuf(stdout, NULL);
 
-    fflush(stdout);
-    while (run)
-    {
-        pthread_t num;
-        addrlen = sizeof(serv);
-        socketBuffer = exitOnError((accept(localSocket, (struct sockaddr *)&serv, &addrlen)), "accept()");
-        printf("accepted %d\n", socketBuffer);
-        fflush(stdout);
-        // printClient(&clientBuffer);
-        pthread_create(&num, NULL, (void *)clientHandler, &(socketBuffer));
-        printf("clients in : %d\n", clientsIn);
-        fflush(stdout);
-    }
+    init_server();
+
+    return 1;
 }
